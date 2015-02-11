@@ -35,6 +35,12 @@
             <scope>test</scope>
             <type>pom</type>
         </dependency>
+        <dependency>
+            <groupId>org.jboss.shrinkwrap.descriptors</groupId>
+            <artifactId>shrinkwrap-descriptors-impl-docker</artifactId>
+            <version>1.0.0-alpha-2</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

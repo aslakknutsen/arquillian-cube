@@ -1,0 +1,3 @@
+implClass=org.arquillian.cube.impl.descriptor.CubeDescriptorImpl
+importerClass=org.arquillian.cube.impl.descriptor.YAMLImporter
+defaultName=cube

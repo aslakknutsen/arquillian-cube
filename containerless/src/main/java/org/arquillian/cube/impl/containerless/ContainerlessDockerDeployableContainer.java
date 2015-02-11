@@ -3,10 +3,15 @@ package org.arquillian.cube.impl.containerless;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
 
+import org.arquillian.cube.impl.docker.DockerClientExecutor;
+import org.arquillian.cube.impl.model.DockerCube;
 import org.arquillian.cube.impl.util.IOUtil;
 import org.arquillian.cube.spi.Binding;
 import org.arquillian.cube.spi.Cube;
@@ -23,6 +28,7 @@ import org.jboss.arquillian.container.spi.client.protocol.ProtocolDescription;
 import org.jboss.arquillian.container.spi.client.protocol.metadata.HTTPContext;
 import org.jboss.arquillian.container.spi.client.protocol.metadata.ProtocolMetaData;
 import org.jboss.arquillian.core.api.Event;
+import org.jboss.arquillian.core.api.Injector;
 import org.jboss.arquillian.core.api.Instance;
 import org.jboss.arquillian.core.api.annotation.Inject;
 import org.jboss.shrinkwrap.api.Archive;
@@ -30,6 +36,8 @@ import org.jboss.shrinkwrap.api.GenericArchive;
 import org.jboss.shrinkwrap.api.exporter.TarExporter;
 import org.jboss.shrinkwrap.api.exporter.ZipExporter;
 import org.jboss.shrinkwrap.descriptor.api.Descriptor;
+import org.jboss.shrinkwrap.descriptor.api.docker.DockerDescriptor;
+import org.jboss.shrinkwrap.descriptor.api.docker.instruction.ExposeInstruction;
 
 public class ContainerlessDockerDeployableContainer implements DeployableContainer<ContainerlessConfiguration> {
 
@@ -44,6 +52,13 @@ public class ContainerlessDockerDeployableContainer implements DeployableContain
     @Inject
     private Event<CubeControlEvent> controlEvent;
 
+    // HACK, should not expose this
+    @Inject
+    private Instance<DockerClientExecutor> executor;
+
+    @Inject
+    private Instance<Injector> injector;
+    
     @Override
     public Class<ContainerlessConfiguration> getConfigurationClass() {
         return ContainerlessConfiguration.class;
@@ -163,12 +178,69 @@ public class ContainerlessDockerDeployableContainer implements DeployableContain
 
     @Override
     public void deploy(Descriptor descriptor) throws DeploymentException {
-        throw new UnsupportedOperationException("Not implemented");
-    }
+        String name = descriptor.getDescriptorName();
+        
+        DockerDescriptor dockerDescriptor = null;
+        if(!(descriptor instanceof DockerDescriptor)) {
+            throw new DeploymentException(
+                    "Only Descriptors of type DockerDescriptor are supported by this container. Tried to deploy " + descriptor.getClass());
+        }
+        
+        dockerDescriptor = DockerDescriptor.class.cast(descriptor);
+        
+        Map<String, Object> configuration = new HashMap<>();
+        Map<String, Object> buildImage = new HashMap<>();
+        Map<String, Object> await = new HashMap<>();
+        
+        configuration.put("buildImage", buildImage);
+        configuration.put("await", await);
+        
+        await.put("strategy", "polling");
+        
+        List<String> portBindings = new ArrayList<>();
+        List<ExposeInstruction> allExposed = dockerDescriptor.getAllExpose();
+        for(int i = 0; i < allExposed.size(); i++) {
+            ExposeInstruction expose = allExposed.get(i);
+            for(Integer p : expose.getPorts()) {
+                portBindings.add(p + "->" + p + "/tcp");
+            }
+        }
+        configuration.put("portBindings", portBindings);
 
+        try {
+            File dockerFile = exportDescriptorToTemp(descriptor);
+            buildImage.put("dockerfileLocation", dockerFile.getParentFile().getAbsolutePath());
+            buildImage.put("noCache", false);
+            buildImage.put("remove", false);
+            
+            DockerCube cube = new DockerCube(name, configuration, executor.get());
+            this.cubeRegistryInstance.get().addCube(injector.get().inject(cube));
+            
+            controlEvent.fire(new CreateCube(cube));
+            controlEvent.fire(new StartCube(cube));
+        }
+        catch(Exception e) {
+            throw new DeploymentException("Could not deploy descriptor", e);
+        }
+    }
+    
     @Override
     public void undeploy(Descriptor descriptor) throws DeploymentException {
-        throw new UnsupportedOperationException("Not implemented");
+        Cube cube = this.cubeRegistryInstance.get().getCube(descriptor.getDescriptorName());
+        if (cube != null) {
+            controlEvent.fire(new StopCube(cube));
+            controlEvent.fire(new DestroyCube(cube));
+        }
+    }
+
+    private File exportDescriptorToTemp(Descriptor descriptor) throws Exception {
+        File output = File.createTempFile("arq", "cube");
+        output.delete();
+        output.mkdirs();
+        
+        File dockerFile = new File(output, "Dockerfile");
+        descriptor.exportTo(new FileOutputStream(dockerFile));
+        return dockerFile;
     }
 
     @SuppressWarnings("unchecked")
