@@ -1,0 +1,27 @@
+{
+	"apiVersion":"v1",
+	"kind": "Pod",
+	"metadata": {
+		"name": "hello-openshift",
+		"labels": {
+			"name": "hello-openshift"
+		}
+	},
+	"spec": {
+		"containers": [{
+			"name": "hello-openshift",
+            "ports": [
+                {
+                    "hostPort": 8080,
+                    "containerPort": 8080,
+                    "protocol": "TCP"
+                },
+                {
+                    "hostPort": 9990,
+                    "containerPort": 9990,
+                    "protocol": "TCP"
+                }
+            ]
+		}]
+	}
+}
