@@ -57,6 +57,7 @@ public class GitServer {
     public void shutdown() throws Exception {
         if (server != null) {
             client.deletePod(server.getMetadata().getName(), namespace);
+            client.deleteSecret("gitserver-config", namespace);
         }
     }
 
@@ -94,7 +95,7 @@ public class GitServer {
 			.withNewSpec()
 				.addNewContainer()
 					.withName("arquillian-gitserver")
-					.withImage("openshift/origin-gitserver:latest")
+					.withImage("aslakknutsen/openshift-arquillian-gitserver")
 					.addNewPort()
 						.withHostPort(PORT)
 						.withContainerPort(8080)
@@ -103,9 +104,8 @@ public class GitServer {
 						.withName("GIT_HOME")
 						.withValue("/var/lib/git")
 						.endEnv()
-					.endContainer()
+				.endContainer()
 				.endSpec()
 			.build();
-
 	}
 }

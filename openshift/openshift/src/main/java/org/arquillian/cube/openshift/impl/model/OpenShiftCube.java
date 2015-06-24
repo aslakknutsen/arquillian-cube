@@ -18,13 +18,14 @@ import org.arquillian.cube.spi.Binding;
 import org.arquillian.cube.spi.Cube;
 import org.arquillian.cube.spi.CubeControlException;
 
+import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.Pod;
 
 public class OpenShiftCube implements Cube {
 
-    // private OpenShiftClient client;
     private String id;
     private Pod resource;
+    private Template<Pod> template;
     private State state;
     private CubeOpenShiftConfiguration configuration;
     private OpenShiftClient client;
@@ -34,6 +35,7 @@ public class OpenShiftCube implements Cube {
     public OpenShiftCube(Pod resource, OpenShiftClient client, CubeOpenShiftConfiguration configuration) {
         this.id = resource.getMetadata().getName();
         this.resource = resource;
+        this.template = new Template.PodTemplate(resource);
         this.client = client;
         this.configuration = configuration;
     }
@@ -50,9 +52,8 @@ public class OpenShiftCube implements Cube {
 
     @Override
     public void create() throws CubeControlException {
-        File folder = new File("src/test/resources/wildfly");
         try {
-            holder = client.build(folder, resource);
+            holder = client.build(template);
             this.state = State.CREATED;
         } catch (Exception e) {
             this.state = State.CREATE_FAILED;
@@ -78,7 +79,7 @@ public class OpenShiftCube implements Cube {
             this.state = State.STOPPED;
         } catch (Exception e) {
             this.state = State.STOP_FAILED;
-            throw CubeControlException.failedDestroy(getId(), e);
+            throw CubeControlException.failedStop(getId(), e);
         }
     }
 
@@ -129,7 +130,9 @@ public class OpenShiftCube implements Cube {
     public Map<String, Object> configuration() {
         Map<String, Object> config = new HashMap<String, Object>();
         Map<String, Object> buildImage = new HashMap<String, Object>();
-        buildImage.put("dockerfileLocation", "src/test/resources/wildfly");
+        if(template.getRefs().size() == 1) {
+            buildImage.put("dockerfileLocation", template.getRefs().get(0).getPath());
+        }
         config.put("buildImage", buildImage);
         return config;
     }

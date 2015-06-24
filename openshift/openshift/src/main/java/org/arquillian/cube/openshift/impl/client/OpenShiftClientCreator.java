@@ -28,7 +28,7 @@ public class OpenShiftClientCreator {
     }
 
     public OpenShiftClient createClient(String originServer, String namespace, boolean keepAliveGitServer) {
-        System.setProperty(Configs.OPENSHIFT_CONFIG_FILE_PROPERTY, "./src/test/resources/config.yaml");
+        //System.setProperty(Configs.OPENSHIFT_CONFIG_FILE_PROPERTY, "./src/test/resources/config.yaml");
         System.setProperty("KUBERNETES_TRUST_CERT", "true");
 
         KubernetesFactory factory = new KubernetesFactory(originServer);
