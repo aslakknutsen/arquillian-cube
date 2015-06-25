@@ -9,6 +9,8 @@ import io.fabric8.kubernetes.api.model.ContainerPort;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.PodCondition;
 import io.fabric8.kubernetes.api.model.PodStatus;
+import io.fabric8.kubernetes.api.model.Service;
+import io.fabric8.kubernetes.api.model.ServicePort;
 import io.fabric8.openshift.api.model.Build;
 
 public final class ResourceUtil {
@@ -38,6 +40,9 @@ public final class ResourceUtil {
         Build build = resource;
         System.out.print("waiting for build " + build.getMetadata().getName() + " ");
         while (!isComplete(build)) {
+            if(isFailed(build)) {
+                throw new RuntimeException("Build " + build.getMetadata().getName() + " failed. See log");
+            }
             System.out.print(".");
             Thread.sleep(200);
             build = kubernetes.getBuild(resource.getMetadata().getName(), resource.getMetadata().getNamespace());
@@ -52,6 +57,10 @@ public final class ResourceUtil {
 
     public static boolean isComplete(Build resource) throws Exception {
         return isComplete(resource.getStatus().getPhase());
+    }
+
+    public static boolean isFailed(Build resource) throws Exception {
+        return "Failed".equals(resource.getStatus().getPhase());
     }
 
     public static boolean isRunning(String phase) {
@@ -74,6 +83,20 @@ public final class ResourceUtil {
             for (ContainerPort port : container.getPorts()) {
                 binding.addPortBinding(port.getHostPort(), port.getContainerPort());
             }
+        }
+        return binding;
+    }
+
+    public static Binding toBinding(Service pod) {
+        Binding binding = null;
+        if (pod.getStatus() != null && pod.getSpec().getPortalIP() != null) { // Running
+                                                                              // pod
+            binding = new Binding(pod.getSpec().getPortalIP());
+        } else { // Configured pod
+            binding = new Binding(null);
+        }
+        for (ServicePort port : pod.getSpec().getPorts()) {
+            binding.addPortBinding(port.getNodePort(), port.getTargetPort().getIntVal());
         }
         return binding;
     }

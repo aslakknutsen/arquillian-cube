@@ -3,7 +3,6 @@ package org.arquillian.cube.openshift.impl.model;
 import static org.arquillian.cube.openshift.impl.client.ResourceUtil.isRunning;
 import static org.arquillian.cube.openshift.impl.client.ResourceUtil.toBinding;
 
-import java.io.File;
 import java.io.OutputStream;
 import java.util.HashMap;
 import java.util.List;
@@ -18,10 +17,9 @@ import org.arquillian.cube.spi.Binding;
 import org.arquillian.cube.spi.Cube;
 import org.arquillian.cube.spi.CubeControlException;
 
-import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.Pod;
 
-public class OpenShiftCube implements Cube {
+public class BuildablePodCube implements Cube {
 
     private String id;
     private Pod resource;
@@ -32,7 +30,7 @@ public class OpenShiftCube implements Cube {
 
     private ResourceHolder holder;
 
-    public OpenShiftCube(Pod resource, OpenShiftClient client, CubeOpenShiftConfiguration configuration) {
+    public BuildablePodCube(Pod resource, OpenShiftClient client, CubeOpenShiftConfiguration configuration) {
         this.id = resource.getMetadata().getName();
         this.resource = resource;
         this.template = new Template.PodTemplate(resource);

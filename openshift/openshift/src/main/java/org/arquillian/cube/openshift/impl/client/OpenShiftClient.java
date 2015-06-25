@@ -19,10 +19,10 @@ import io.fabric8.kubernetes.api.Kubernetes;
 import io.fabric8.kubernetes.api.KubernetesExtensions;
 import io.fabric8.kubernetes.api.KubernetesFactory;
 import io.fabric8.kubernetes.api.KubernetesHelper;
-import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.KubernetesResource;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.PodBuilder;
+import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.openshift.api.model.Build;
 import io.fabric8.openshift.api.model.BuildConfig;
 import io.fabric8.openshift.api.model.BuildConfigBuilder;
@@ -76,9 +76,9 @@ public class OpenShiftClient {
 
 	public ResourceHolder build(Template<Pod> template) throws Exception {
         ResourceHolder holder = new ResourceHolder();
-	    for(TemplateImageRef ref : template.getRefs()) {
+        Map<String, String> defaultLabels = getDefaultLabels();
+        for(TemplateImageRef ref : template.getRefs()) {
 	        URI repoUri = gitserver.push(new File(ref.getPath()), ref.getContainerName());
-	        Map<String, String> defaultLabels = getDefaultLabels();
 
 	        String runID = ref.getContainerName();
 
@@ -140,21 +140,32 @@ public class OpenShiftClient {
 	            String imageRef = is.getStatus().getTags().get(0).getItems().get(0).getDockerImageReference();
 	            template.resolve(ref,  imageRef);
 
-                Pod service = new PodBuilder()
-                        .withNewMetadataLike(template.getTarget().getMetadata())
-                            .withLabels(defaultLabels)
-                        .endMetadata()
-                    .withNewSpecLike(template.getTarget().getSpec())
-                        .endSpec()
-                    .build();
-
+                Pod service = createStartablePod(template, defaultLabels);
 	            holder.setPod(service);
 	        } catch(Exception e) {
 	            holder.setException(e);
 	        }
 		}
+	    if(template.getRefs().size() == 0) {
+            Pod service = createStartablePod(template, defaultLabels);
+            holder.setPod(service);
+	    }
         return holder;
 	}
+
+    private Pod createStartablePod(Template<Pod> template, Map<String, String> defaultLabels) {
+        Map<String, String> allLabels = new HashMap<String, String>();
+        allLabels.putAll(defaultLabels);
+        allLabels.putAll(template.getTarget().getMetadata().getLabels());
+        Pod service = new PodBuilder()
+                .withNewMetadataLike(template.getTarget().getMetadata())
+                    .withLabels(allLabels)
+                .endMetadata()
+            .withNewSpecLike(template.getTarget().getSpec())
+                .endSpec()
+            .build();
+        return service;
+    }
 
     public Pod createAndWait(Pod resource) throws Exception {
 		return waitForStart(
@@ -163,11 +174,19 @@ public class OpenShiftClient {
 						getClient().createPod(resource, namespace)));
 	}
 
-	public void destroy(Pod resource) throws Exception {
+    public Service create(Service resource) throws Exception {
+        return (Service)loadJson(getClient().createService(resource, namespace));
+    }
+
+    public void destroy(Pod resource) throws Exception {
 		getClient().deletePod(resource.getMetadata().getName(), namespace);
 	}
 
-	public Pod update(Pod resource) throws Exception {
+    public void destroy(Service resource) throws Exception {
+        getClient().deleteService(resource.getMetadata().getName(), namespace);
+    }
+
+    public Pod update(Pod resource) throws Exception {
 		return getClient().getPod(resource.getMetadata().getName(), namespace);
 	}
 
