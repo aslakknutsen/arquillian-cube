@@ -17,23 +17,23 @@ import org.arquillian.cube.spi.Binding;
 import org.arquillian.cube.spi.Cube;
 import org.arquillian.cube.spi.CubeControlException;
 
-import io.fabric8.kubernetes.api.model.Pod;
+import io.fabric8.openshift.api.model.DeploymentConfig;
 
-public class BuildablePodCube implements Cube {
+public class BuildableDCCube implements Cube {
 
     private String id;
-    private Pod resource;
-    private Template<Pod> template;
+    private DeploymentConfig resource;
+    private Template<DeploymentConfig> template;
     private State state;
     private CubeOpenShiftConfiguration configuration;
     private OpenShiftClient client;
 
-    private ResourceHolder<Pod> holder;
+    private ResourceHolder<DeploymentConfig> holder;
 
-    public BuildablePodCube(Pod resource, OpenShiftClient client, CubeOpenShiftConfiguration configuration) {
+    public BuildableDCCube(DeploymentConfig resource, OpenShiftClient client, CubeOpenShiftConfiguration configuration) {
         this.id = resource.getMetadata().getName();
         this.resource = resource;
-        this.template = new Template.PodTemplate(resource);
+        this.template = new Template.DeploymentConfigTemplate(resource);
         this.client = client;
         this.configuration = configuration;
     }
@@ -51,7 +51,7 @@ public class BuildablePodCube implements Cube {
     @Override
     public void create() throws CubeControlException {
         try {
-            holder = client.buildPod(template);
+            holder = client.buildDeploymentConfig(template);
             this.state = State.CREATED;
         } catch (Exception e) {
             this.state = State.CREATE_FAILED;
@@ -62,7 +62,7 @@ public class BuildablePodCube implements Cube {
     @Override
     public void start() throws CubeControlException {
         try {
-            holder.setResource(client.createAndWait(holder.getTarget()));
+            holder.setResource(client.create(holder.getTarget()));
             this.state = State.STARTED;
         } catch (Exception e) {
             this.state = State.START_FAILED;
@@ -97,12 +97,7 @@ public class BuildablePodCube implements Cube {
 
     @Override
     public boolean isRunningOnRemote() {
-        try {
-            resource = client.update(resource);
-            return isRunning(resource);
-        } catch (Exception e) {
-            return false;
-        }
+        return false;
     }
 
     @Override

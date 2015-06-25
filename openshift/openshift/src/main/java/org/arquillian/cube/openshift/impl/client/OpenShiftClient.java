@@ -4,6 +4,7 @@ import static io.fabric8.kubernetes.api.KubernetesHelper.loadJson;
 import static org.arquillian.cube.openshift.impl.client.ResourceUtil.waitForStart;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,6 +29,8 @@ import io.fabric8.openshift.api.model.BuildConfig;
 import io.fabric8.openshift.api.model.BuildConfigBuilder;
 import io.fabric8.openshift.api.model.BuildRequest;
 import io.fabric8.openshift.api.model.BuildRequestBuilder;
+import io.fabric8.openshift.api.model.DeploymentConfig;
+import io.fabric8.openshift.api.model.DeploymentConfigBuilder;
 import io.fabric8.openshift.api.model.ImageStream;
 import io.fabric8.openshift.api.model.ImageStreamBuilder;
 
@@ -48,7 +51,7 @@ public class OpenShiftClient {
         this.gitserver = new GitServer(this.getClient(), namespace);
     }
 
-    public List<Exception> clean(ResourceHolder holder) {
+    public List<Exception> clean(ResourceHolder<?> holder) {
 
         List<Exception> exceptions = new ArrayList<Exception>();
 
@@ -74,65 +77,29 @@ public class OpenShiftClient {
         return exceptions;
     }
 
-	public ResourceHolder build(Template<Pod> template) throws Exception {
-        ResourceHolder holder = new ResourceHolder();
+	public ResourceHolder<Pod> buildPod(Template<Pod> template) throws Exception {
+        ResourceHolder<Pod> holder = new ResourceHolder<Pod>();
         Map<String, String> defaultLabels = getDefaultLabels();
+
+        if(template.getRefs().size() == 0) {
+            Pod service = createStartablePod(template, defaultLabels);
+            holder.setResource(service);
+            return holder;
+        }
+
         for(TemplateImageRef ref : template.getRefs()) {
 	        URI repoUri = gitserver.push(new File(ref.getPath()), ref.getContainerName());
 
 	        String runID = ref.getContainerName();
 
 	        try {
-	            ImageStream is = new ImageStreamBuilder()
-	                    .withNewMetadata()
-	                        .withName(runID)
-	                        .withLabels(defaultLabels)
-	                        .endMetadata()
-	                    .build();
-	            is = (ImageStream)KubernetesHelper.loadJson(getClientExt().createImageStream(is, namespace));
+	            ImageStream is = createImageStream(defaultLabels, runID);
 	            holder.addResource(is);
 
-	            BuildConfig config = new BuildConfigBuilder()
-	                    .withNewMetadata()
-	                        .withName(runID)
-	                        .withLabels(defaultLabels)
-	                        .endMetadata()
-	                    .withNewSpec()
-	                        .withNewSource()
-	                            .withNewGit("master", repoUri.toString())
-	                            .withType("Git")
-	                            .endSource()
-	                        .withNewStrategy()
-	                            .withType("Docker")
-	                            .withNewDockerStrategy()
-	                                .withNoCache(false)
-	                                .endDockerStrategy()
-	                            .endStrategy()
-	                        .withNewOutput()
-	                                .withNewTo()
-	                                    .withKind("ImageStreamTag")
-	                                    .withName(runID + ":latest")
-	                                    .endTo()
-	                            .endOutput()
-	                        .endSpec()
-	                    .build();
-
-	            config = (BuildConfig)KubernetesHelper.loadJson(getClientExt().createBuildConfig(config, namespace));
+	            BuildConfig config = createBuildConfig(defaultLabels, repoUri, runID);
 	            holder.addResource(config);
 
-	            BuildRequest br = new BuildRequestBuilder()
-	                    .withNewMetadata()
-	                        .withName(config.getMetadata().getName())
-	                        .withLabels(defaultLabels)
-	                        .endMetadata()
-	                    .build();
-
-	            Build build = ResourceUtil.waitForComplete(
-	                    getClientExt(),
-	                    (Build)KubernetesHelper.loadJson(
-	                            getClientExt().instantiateBuild(
-	                                    config.getMetadata().getName(), br, namespace)));
-
+	            Build build = createBuild(defaultLabels, config);
 	            holder.addResource(build);
 
 	            is = getClientExt().getImageStream(is.getMetadata().getName(), namespace);
@@ -141,23 +108,135 @@ public class OpenShiftClient {
 	            template.resolve(ref,  imageRef);
 
                 Pod service = createStartablePod(template, defaultLabels);
-	            holder.setPod(service);
+	            holder.setResource(service);
 	        } catch(Exception e) {
 	            holder.setException(e);
 	        }
 		}
-	    if(template.getRefs().size() == 0) {
-            Pod service = createStartablePod(template, defaultLabels);
-            holder.setPod(service);
-	    }
         return holder;
 	}
+
+    public ResourceHolder<DeploymentConfig> buildDeploymentConfig(Template<DeploymentConfig> template) throws Exception {
+        ResourceHolder<DeploymentConfig> holder = new ResourceHolder<DeploymentConfig>();
+        Map<String, String> defaultLabels = getDefaultLabels();
+
+        if(template.getRefs().size() == 0) {
+            DeploymentConfig service = createStartableDeploymentConfig(template, defaultLabels);
+            holder.setResource(service);
+            return holder;
+        }
+
+        for(TemplateImageRef ref : template.getRefs()) {
+            URI repoUri = gitserver.push(new File(ref.getPath()), ref.getContainerName());
+
+            String runID = ref.getContainerName();
+
+            try {
+                ImageStream is = createImageStream(defaultLabels, runID);
+                holder.addResource(is);
+
+                BuildConfig config = createBuildConfig(defaultLabels, repoUri, runID);
+                holder.addResource(config);
+
+                Build build = createBuild(defaultLabels, config);
+                holder.addResource(build);
+
+                is = getClientExt().getImageStream(is.getMetadata().getName(), namespace);
+
+                String imageRef = is.getStatus().getTags().get(0).getItems().get(0).getDockerImageReference();
+                template.resolve(ref,  imageRef);
+
+                DeploymentConfig service = createStartableDeploymentConfig(template, defaultLabels);
+                holder.setResource(service);
+            } catch(Exception e) {
+                holder.setException(e);
+            }
+        }
+        return holder;
+    }
+
+    private Build createBuild(Map<String, String> defaultLabels, BuildConfig config) throws Exception, IOException {
+        BuildRequest br = new BuildRequestBuilder()
+                .withNewMetadata()
+                    .withName(config.getMetadata().getName())
+                    .withLabels(defaultLabels)
+                    .endMetadata()
+                .build();
+
+        Build build = ResourceUtil.waitForComplete(
+                getClientExt(),
+                (Build)KubernetesHelper.loadJson(
+                        getClientExt().instantiateBuild(
+                                config.getMetadata().getName(), br, namespace)));
+        return build;
+    }
+
+    private BuildConfig createBuildConfig(Map<String, String> defaultLabels, URI repoUri, String runID)
+            throws IOException, Exception {
+        BuildConfig config = new BuildConfigBuilder()
+                .withNewMetadata()
+                    .withName(runID)
+                    .withLabels(defaultLabels)
+                    .endMetadata()
+                .withNewSpec()
+                    .withNewSource()
+                        .withNewGit("master", repoUri.toString())
+                        .withType("Git")
+                        .endSource()
+                    .withNewStrategy()
+                        .withType("Docker")
+                        .withNewDockerStrategy()
+                            .withNoCache(false)
+                            .endDockerStrategy()
+                        .endStrategy()
+                    .withNewOutput()
+                            .withNewTo()
+                                .withKind("ImageStreamTag")
+                                .withName(runID + ":latest")
+                                .endTo()
+                        .endOutput()
+                    .endSpec()
+                .build();
+
+        config = (BuildConfig)KubernetesHelper.loadJson(getClientExt().createBuildConfig(config, namespace));
+        return config;
+    }
+
+    private ImageStream createImageStream(Map<String, String> defaultLabels, String runID)
+            throws IOException, Exception {
+        ImageStream is = new ImageStreamBuilder()
+                .withNewMetadata()
+                    .withName(runID)
+                    .withLabels(defaultLabels)
+                    .endMetadata()
+                .build();
+        is = (ImageStream)KubernetesHelper.loadJson(getClientExt().createImageStream(is, namespace));
+        return is;
+    }
 
     private Pod createStartablePod(Template<Pod> template, Map<String, String> defaultLabels) {
         Map<String, String> allLabels = new HashMap<String, String>();
         allLabels.putAll(defaultLabels);
-        allLabels.putAll(template.getTarget().getMetadata().getLabels());
+        if(template.getTarget().getMetadata().getLabels() != null) {
+            allLabels.putAll(template.getTarget().getMetadata().getLabels());
+        }
         Pod service = new PodBuilder()
+                .withNewMetadataLike(template.getTarget().getMetadata())
+                    .withLabels(allLabels)
+                .endMetadata()
+            .withNewSpecLike(template.getTarget().getSpec())
+                .endSpec()
+            .build();
+        return service;
+    }
+
+    private DeploymentConfig createStartableDeploymentConfig(Template<DeploymentConfig> template, Map<String, String> defaultLabels) {
+        Map<String, String> allLabels = new HashMap<String, String>();
+        allLabels.putAll(defaultLabels);
+        if(template.getTarget().getMetadata().getLabels() != null) {
+            allLabels.putAll(template.getTarget().getMetadata().getLabels());
+        }
+        DeploymentConfig service = new DeploymentConfigBuilder()
                 .withNewMetadataLike(template.getTarget().getMetadata())
                     .withLabels(allLabels)
                 .endMetadata()
@@ -174,6 +253,10 @@ public class OpenShiftClient {
 						getClient().createPod(resource, namespace)));
 	}
 
+    public DeploymentConfig create(DeploymentConfig resource) throws Exception {
+        return (DeploymentConfig)loadJson(getClientExt().createDeploymentConfig(resource, namespace));
+    }
+
     public Service create(Service resource) throws Exception {
         return (Service)loadJson(getClient().createService(resource, namespace));
     }
@@ -184,6 +267,10 @@ public class OpenShiftClient {
 
     public void destroy(Service resource) throws Exception {
         getClient().deleteService(resource.getMetadata().getName(), namespace);
+    }
+
+    public void destroy(DeploymentConfig resource) throws Exception {
+        getClientExt().deleteDeploymentConfig(resource.getMetadata().getName(), namespace);
     }
 
     public Pod update(Pod resource) throws Exception {
@@ -216,9 +303,9 @@ public class OpenShiftClient {
 		return labels;
 	}
 
-    public static class ResourceHolder {
+    public static class ResourceHolder<T> {
 
-        public Pod pod;
+        public T resource;
         public Set<KubernetesResource> resources;
         private Exception exception;
 
@@ -226,8 +313,8 @@ public class OpenShiftClient {
             this(null);
         }
 
-        public ResourceHolder(Pod pod) {
-            this.pod = pod;
+        public ResourceHolder(T resource) {
+            this.resource = resource;
             this.resources = new HashSet<KubernetesResource>();
         }
 
@@ -239,8 +326,8 @@ public class OpenShiftClient {
             return exception;
         }
 
-        public void setPod(Pod pod) {
-            this.pod = pod;
+        public void setResource(T pod) {
+            this.resource = pod;
         }
 
         public void addResource(KubernetesResource resource) {
@@ -251,8 +338,8 @@ public class OpenShiftClient {
             return resources;
         }
 
-        public Pod getPod() {
-            return pod;
+        public T getTarget() {
+            return resource;
         }
     }
 }

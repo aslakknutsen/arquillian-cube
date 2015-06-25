@@ -12,6 +12,7 @@ import io.fabric8.kubernetes.api.model.PodStatus;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServicePort;
 import io.fabric8.openshift.api.model.Build;
+import io.fabric8.openshift.api.model.DeploymentConfig;
 
 public final class ResourceUtil {
 
@@ -83,6 +84,16 @@ public final class ResourceUtil {
             for (ContainerPort port : container.getPorts()) {
                 binding.addPortBinding(port.getHostPort(), port.getContainerPort());
             }
+        }
+        return binding;
+    }
+
+    public static Binding toBinding(DeploymentConfig pod) {
+        Binding binding = null;
+        binding = new Binding(null);
+        for (Container container : pod.getSpec().getTemplate().getSpec().getContainers()) {
+            for(ContainerPort port : container.getPorts())
+            binding.addPortBinding(port.getHostPort(), port.getContainerPort());
         }
         return binding;
     }

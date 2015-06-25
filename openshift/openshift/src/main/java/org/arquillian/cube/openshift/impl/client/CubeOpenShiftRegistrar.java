@@ -1,5 +1,6 @@
 package org.arquillian.cube.openshift.impl.client;
 
+import org.arquillian.cube.openshift.impl.model.BuildableDCCube;
 import org.arquillian.cube.openshift.impl.model.BuildablePodCube;
 import org.arquillian.cube.openshift.impl.model.ServiceCube;
 import org.arquillian.cube.spi.CubeRegistry;
@@ -9,6 +10,7 @@ import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.KubernetesList;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.Service;
+import io.fabric8.openshift.api.model.DeploymentConfig;
 
 public class CubeOpenShiftRegistrar {
 
@@ -30,6 +32,8 @@ public class CubeOpenShiftRegistrar {
             registry.addCube(new BuildablePodCube((Pod) model, client, configuration));
         } else if (model instanceof Service) {
             registry.addCube(new ServiceCube((Service) model, client, configuration));
+        } else if (model instanceof DeploymentConfig) {
+            registry.addCube(new BuildableDCCube((DeploymentConfig) model, client, configuration));
         }
     }
 }
